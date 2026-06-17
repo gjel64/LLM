@@ -16,13 +16,14 @@ args = parser.parse_args()
 class Config:
     emb_dim: int = args.emb_dim #d_model
     n_heads: int = 4
+    n_group: int = 2
     context_len: int = args.context_len # block_size
     n_block: int = args.n_block # n_layers
     dropout: float = 0.2
     lr: float = 3e-4
     vocab_size: int = 128 + 256
-    batch_size: int = 8
-    n_iter: int = 10000
+    batch_size: int = 4
+    n_iter: int = 20000
     n_iter_eval: int = 20
     eval_interval: int = 100
 
@@ -45,7 +46,7 @@ print("text : %.4fM tokens" % (len(encoded_text)/1e6,))
 print("LOG: creating Model...")
 model = Transformer(Config.vocab_size, Config.emb_dim, 
                     Config.n_heads, Config.context_len, 
-                    Config.n_block, Config.dropout, device)
+                    Config.n_block, Config.dropout, device, Config.n_group)
 model = model.to(device)
 optimizer = torch.optim.AdamW(model.parameters(), Config.lr)
 

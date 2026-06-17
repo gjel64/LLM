@@ -29,9 +29,9 @@ Phase 7 → Projet final complet     (~8 sem)
 | **Attention Is All You Need** ✅ | Vaswani et al. | 2017 | Architecture originale — encore la base de tout | 
 | **FlashAttention 1 ✅ & 2** | Dao et al. | 2022/23 | Attention IO-optimisée, base de tout training sérieux |
 | **RoPE** ✅ | Su et al. | 2021 | Positional embeddings de tous les LLMs actuels (Llama, Mistral…) |
-| **GQA / MQA** | Ainslie et al. | 2023 | Grouped/Multi-Query Attention — inference efficace |
+| **GQA** | Ainslie et al. | 2023 | Grouped Query Attention — inference efficace |
 | **SwiGLU / GLU variants** ✅| Shazeer | 2020 | FFN activation standard de presque tous les LLMs open-source |
-| **RMSNorm + Pre-Norm** | Zhang & Sennrich | 2019 | Normalisation stabilisante, standard post-2022 |
+| **RMSNorm + Pre-Norm** ✅| Zhang & Sennrich | 2019 | Normalisation stabilisante, standard post-2022 |
 
 ### Code & vidéos
 

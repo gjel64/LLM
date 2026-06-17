@@ -1,3 +1,2 @@
-import torch.nn as nn
-
-swig = nn.SwigLU
+import torch 
+print(torch.__version__)
