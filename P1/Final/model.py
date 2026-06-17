@@ -118,12 +118,13 @@ class Transformer(nn.Module):
         self.l1 = nn.Linear(emb_dim, vocab_size, bias=False)
         
         self.device = device
-        self.emb.weight = self.l1.weight # emb and l1 are doing the same thing
 
         self.apply(self._init_weights)
         for pn, p in self.named_parameters():
             if pn.endswith('proj.weight'):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * n_block))
+
+        self.emb.weight = self.l1.weight # emb and l1 are doing the same thing
 
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
 
