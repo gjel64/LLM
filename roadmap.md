@@ -9,7 +9,7 @@
 ## Vue d'ensemble
 
 ```
-Phase 1 → Transformer moderne      (~6 sem)
+Phase 1 → Transformer moderne ✅
 Phase 2 → Scaling & Pretraining    (~6 sem)
 Phase 3 → Post-training / RLHF     (~5 sem)
 Phase 4 → Reasoning & CoT          (~6 sem)  ← cœur du sujet
@@ -29,7 +29,7 @@ Phase 7 → Projet final complet     (~8 sem)
 | **Attention Is All You Need** ✅ | Vaswani et al. | 2017 | Architecture originale — encore la base de tout | 
 | **FlashAttention 1 ✅ & 2** | Dao et al. | 2022/23 | Attention IO-optimisée, base de tout training sérieux |
 | **RoPE** ✅ | Su et al. | 2021 | Positional embeddings de tous les LLMs actuels (Llama, Mistral…) |
-| **GQA** | Ainslie et al. | 2023 | Grouped Query Attention — inference efficace |
+| **GQA** ✅| Ainslie et al. | 2023 | Grouped Query Attention — inference efficace |
 | **SwiGLU / GLU variants** ✅| Shazeer | 2020 | FFN activation standard de presque tous les LLMs open-source |
 | **RMSNorm + Pre-Norm** ✅| Zhang & Sennrich | 2019 | Normalisation stabilisante, standard post-2022 |
 
@@ -43,7 +43,7 @@ Phase 7 → Projet final complet     (~8 sem)
 2. BPE from scratch ✅
 3. `nn.LayerNorm` → `RMSNorm` ✅
 4. Learned positional embeddings → `RoPE` ✅
-5. MHA → `GQA`
+5. MHA → `GQA` ✅
 6. MLP standard → `SwiGLU` ✅
 
 ---
@@ -55,13 +55,13 @@ Phase 7 → Projet final complet     (~8 sem)
 
 | Paper | Auteurs | Année | Message clé |
 |---|---|---|---|
+| **Training stability** | Yang et al. | 2022 | μ-parameterization, grad clipping, LR warmup — éviter les loss spikes |
 | **Chinchilla / Hoffmann et al.** | Hoffmann et al. | 2022 | Compute-optimal : ratio tokens/params, loi fondamentale |
 | **Kaplan Scaling Laws** | Kaplan et al. | 2020 | Fondations historiques — comprendre l'évolution du domaine |
-| **Training stability** | Yang et al. | 2022 | μ-parameterization, grad clipping, LR warmup — éviter les loss spikes |
-| **Llama 3 tech report** | Meta | 2024 | Pipeline complet open-source : data, tokenizer, architecture |
-| **DeepSeek V3** | DeepSeek | 2024 | MoE + multi-token prediction + FP8 training. **SOTA open-source 2025.** |
 | **MoE — Sparse routing** | Lepikhin et al. + DeepSeek | 2021/24 | Scale sans coût compute linéaire |
 | **Muon** | xx | xx | xx |
+| **Llama 3 tech report** | Meta | 2024 | Pipeline complet open-source : data, tokenizer, architecture |
+| **DeepSeek V3** | DeepSeek | 2024 | MoE + multi-token prediction + FP8 training. **SOTA open-source 2025.** |
 
 ### Data pipeline
 

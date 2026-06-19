@@ -54,8 +54,8 @@ class GroupedQueryAttention(nn.Module):
         cos = torch.cos(angles)  # (T, head_size//2)
         sin = torch.sin(angles)  # (T, head_size//2)
 
-        cos = cos.unsqueeze(0) # (1, T, head_size//2) for batch dimension
-        sin = sin.unsqueeze(0) # (1, T, head_size//2) for batch dimension
+        cos = cos.unsqueeze(0) # (1, T, head_size//2)
+        sin = sin.unsqueeze(0) # (1, T, head_size//2)
 
         x1 = matrix[:, :, 0::2]  # (B, T, head_size//2)
         x2 = matrix[:, :, 1::2]  # (B, T, head_size//2)

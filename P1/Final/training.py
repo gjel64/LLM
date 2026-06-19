@@ -5,6 +5,7 @@ import torch
 from tqdm import tqdm
 import json
 import argparse
+import math
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--emb_dim", type=int, default=256)
@@ -26,6 +27,9 @@ class Config:
     n_iter: int = 20000
     n_iter_eval: int = 20
     eval_interval: int = 100
+    warmup_steps: int = n_iter // 5
+    warmdown_steps: int = n_iter // 10
+    final_lr_frac: float = 0.1
 
 
 device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
@@ -40,7 +44,7 @@ encoded_text = bpe.encode(text)
 split = int(len(encoded_text) * 0.9)
 train_text = encoded_text[:split]
 eval_text = encoded_text[split:]
-print("text : %.4fM tokens" % (len(encoded_text)/1e6,))
+print("text : %.4fM tokens" % (len(encoded_text)/1e6))
 
 
 print("LOG: creating Model...")
@@ -83,7 +87,20 @@ def eval(nb_iter):
     
     return eval_loss, train_loss
 
+def get_lr_mul(it):
+    # 0 -> 1
+    if it < Config.warmup_steps:
+        return (it + 1) / (Config.warmup_steps)
+
+    # 1
+    if it <= Config.n_iter - Config.warmdown_steps:
+        return 1.0
     
+    # 1 -> 0
+    progress = (Config.n_iter - it) / Config.warmdown_steps
+    progress = max(0.0, min(1.0, progress)) 
+    cosine_decay = 0.5 * (1.0 + math.cos(math.pi * (1.0 - progress)))
+    return Config.final_lr_frac + (1.0 - Config.final_lr_frac) * cosine_decay
 
 
 
@@ -104,8 +121,10 @@ for i in tqdm(range(Config.n_iter)):
         eval_loss, train_loss = eval(Config.n_iter_eval)
         train_loss_stats.append(train_loss)
         eval_loss_stats.append(eval_loss)
-        print(f"iter : {i} | eval_loss : {eval_loss} | train_loss : {train_loss}")
+        print(f"iter : {i} | eval_loss : {eval_loss} | train_loss : {train_loss} | lr : {Config.lr * get_lr_mul(i)}")
 
+    for group in optimizer.param_groups:
+            group['lr'] = Config.lr * get_lr_mul(i)
     X, Y = get_batch(Config.context_len, train_text, Config.batch_size)
     logits, loss = model(X, Y)
 
