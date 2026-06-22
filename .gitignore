@@ -1,2 +1,5 @@
-
-*.txt
+.venv
+__pycache__/
+.txt
+.bin
+.cache/
