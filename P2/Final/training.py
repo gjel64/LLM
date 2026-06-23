@@ -14,10 +14,10 @@ tokenizer = createTokenizer(["<|startoftext|>", "<|endoftext|>"])
 
 @dataclass
 class Config:
-    emb_dim: int = 512 #d_model
+    emb_dim: int = 768 #d_model
     n_heads: int = 8
     n_group: int = 2
-    context_len: int = 1024 # block_size
+    context_len: int = 2048 # block_size
     n_block: int = 6 # n_layers
     dropout: float = 0.0
     lr: float = 1e-3
@@ -29,10 +29,10 @@ class Config:
     warmup_steps: int = 200
     warmdown_steps: int = 2000
     final_lr_frac: float = 0.1
+    max_tokens: int = 100_000_000
     device = device
 
-download_data(tokenizer, max_tokens=200_000_000)
-
+download_data(tokenizer, max_tokens=Config.max_tokens)
 
 
 model = Transformer(Config.vocab_size, Config.emb_dim, 
@@ -85,6 +85,8 @@ def get_lr_mul(it):
 
 if device == "cuda":
     model = torch.compile(model)
+
+print(f"training for {Config.batch_size * Config.context_len * Config.n_iter / Config.max_tokens} epochs")
 
 train_loss_stats = []
 eval_loss_stats = []

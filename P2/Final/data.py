@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-def download_data(tokenizer, val_ratio=0.005, max_tokens=10):
+def download_data(tokenizer, max_tokens, val_ratio=0.005):
     os.makedirs('.cache', exist_ok=True)
     
     if not os.path.isfile('.cache/train.bin') or not os.path.isfile('.cache/val.bin'):
