@@ -5,7 +5,12 @@ import torch
 from data import download_data, get_batch
 from tqdm import tqdm
 import math
+import argparse
 import json
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--name", type=str, default="unknown")
+args = parser.parse_args()
 
 torch.set_float32_matmul_precision('high')
 device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
@@ -40,13 +45,33 @@ model = Transformer(Config.vocab_size, Config.emb_dim,
                     Config.n_block, Config.dropout, device, Config.n_group)
 model = model.to(device)
 
-optimizer = torch.optim.AdamW(
-    model.parameters(), 
+# optimizers :
+
+muon_params = [p for n, p in model.named_parameters()
+               if p.ndim == 2
+               and "emb" not in n
+               and "l1" not in n]  
+
+muon_set = {id(p) for p in muon_params}
+adamw_params = [p for n, p in model.named_parameters()
+                if id(p) not in muon_set]
+
+optimizerAdamW = torch.optim.AdamW(
+    adamw_params, 
     lr=Config.lr,
     betas=(0.9, 0.95),
     weight_decay=0.1,
     fused=True
 )
+
+optimizerMuon = torch.optim.Muon(
+    muon_params,
+    lr=Config.lr, 
+    weight_decay=0.1,
+    adjust_lr_fn = "match_rms_adamw" # as in "Muon is scalable for LLM training" paper
+)
+
+optimizers = [optimizerAdamW, optimizerMuon]
 
 
 @torch.no_grad()
@@ -93,26 +118,32 @@ eval_loss_stats = []
 # training loop
 for i in tqdm(range(Config.n_iter)):
     model.train()
-    for group in optimizer.param_groups:
-            group['lr'] = Config.lr * get_lr_mul(i)
+    
+    # update lr
+    for optims in optimizers:
+        for group in optims.param_groups:
+                group['lr'] = Config.lr * get_lr_mul(i)
+    # zero_grad
+        optims.zero_grad()
 
-
-    optimizer.zero_grad()
+    # evaluation
     if (i % Config.eval_interval == 0):
         eval_loss, train_loss = eval(Config.n_iter_eval)
         train_loss_stats.append(train_loss)
         eval_loss_stats.append(eval_loss)
         print(f"iter : {i} | eval_loss : {eval_loss} | train_loss : {train_loss} | lr : {Config.lr * get_lr_mul(i)}")
 
-
+    # training 
     X, Y = get_batch("train", Config.context_len, device, Config.batch_size)
     logits, loss = model(X, Y)
 
+    # update
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-    optimizer.step()
+    for optims in optimizers:
+        optims.step()
 
 with open("stats.txt", "a") as f:
-    data = {"train_loss_stats" : train_loss_stats, "eval_loss_stats": eval_loss_stats}
+    data = {"name":args.name , "train_loss_stats" : train_loss_stats, "eval_loss_stats": eval_loss_stats}
     f.write("\n")
     f.write(json.dumps(data))
