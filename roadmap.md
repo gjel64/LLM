@@ -1,4 +1,4 @@
-# Roadmap IA → LLM Agentic CoT
+# Roadmap IA → LLM Agentic CoT (AI generated)
 > **Objectif :** maîtriser la pipeline complète d'un LLM agentic avec Chain-of-Thought fort  
 > **Prérequis :** tu sais déjà coder GPT-2/3 (cours Karpathy)  
 > **Durée estimée :** 12–18 mois  
@@ -55,11 +55,12 @@ Phase 7 → Projet final complet     (~8 sem)
 
 | Paper | Auteurs | Année | Message clé |
 |---|---|---|---|
+| **Muon scalable for LLM training** ✅| Liu et al. | 2023 | xx |
+| **YARN** | Peng et al. | 2024 | xx |
 | **Training stability** | Yang et al. | 2022 | μ-parameterization, grad clipping, LR warmup — éviter les loss spikes |
 | **Chinchilla / Hoffmann et al.** | Hoffmann et al. | 2022 | Compute-optimal : ratio tokens/params, loi fondamentale |
 | **Kaplan Scaling Laws** | Kaplan et al. | 2020 | Fondations historiques — comprendre l'évolution du domaine |
 | **MoE — Sparse routing** | Lepikhin et al. + DeepSeek | 2021/24 | Scale sans coût compute linéaire |
-| **Muon** | xx | xx | xx |
 | **Llama 3 tech report** | Meta | 2024 | Pipeline complet open-source : data, tokenizer, architecture |
 | **DeepSeek V3** | DeepSeek | 2024 | MoE + multi-token prediction + FP8 training. **SOTA open-source 2025.** |
 
