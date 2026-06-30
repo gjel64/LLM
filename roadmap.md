@@ -56,7 +56,7 @@ Phase 7 → Projet final complet     (~8 sem)
 | Paper | Auteurs | Année | Message clé |
 |---|---|---|---|
 | **Muon scalable for LLM training** ✅| Liu et al. | 2023 | xx |
-| **YARN** | Peng et al. | 2024 | xx |
+| **YARN** ✅| Peng et al. | 2024 | xx |
 | **Training stability** | Yang et al. | 2022 | μ-parameterization, grad clipping, LR warmup — éviter les loss spikes |
 | **Chinchilla / Hoffmann et al.** | Hoffmann et al. | 2022 | Compute-optimal : ratio tokens/params, loi fondamentale |
 | **Kaplan Scaling Laws** | Kaplan et al. | 2020 | Fondations historiques — comprendre l'évolution du domaine |
@@ -90,6 +90,8 @@ Phase 7 → Projet final complet     (~8 sem)
 | **DPO** | Rafailov et al. | 2023 | Plus simple que PPO, **standard actuel** pour l'alignement |
 | **GRPO / SimPO** | DeepSeek / Chen et al. | 2024 | Variantes DPO plus stables, utilisées dans DeepSeek-R1 |
 | **LoRA / QLoRA** | Hu et al. | 2021/23 | Fine-tuning paramètre-efficient, standard pour adapter un LLM |
+| **VeRA**|
+| **DoRA**|
 | **Constitutional AI / RLAIF** | Anthropic | 2022 | Self-critique, alignment sans labelers humains exhaustifs |
 
 ### Outils pratiques

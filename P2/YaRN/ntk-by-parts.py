@@ -14,7 +14,7 @@ class FFN(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        # ((Swish_1(x @ W1)) * (x @ V)) @ W2 -> SwigLU
+        # ((Swish_1(x @ W1)) * (x @ V)) @ W2      -> SwigLU
         x_w1 = self.w1(x)
         Swish_1 = x_w1 * torch.sigmoid(x_w1)
         x_v = self.v(x)
@@ -37,19 +37,14 @@ class GroupedQueryAttention(nn.Module):
         self.proj = nn.Linear(n_heads * head_size, emb_dim)
         self.end_dropout = nn.Dropout(dropout)
 
-        self.dropout_p = dropout
-        self.n_heads = n_heads
-        self.head_size = head_size # for scale in flash_attention
-        self.alpha = 1 # tuneable parameter -> number minimum of rotation
-        self.beta = 32 # tuneable parameter -> threshold beyond which pure PI is ok
-
-        self.register_buffer("s", torch.tensor(1.0)) # at start no additional scale
-        self.register_buffer("scale_temp", (0.1 * torch.log(self.s) + 1)**2) # as in YaRN paper to scale indirectly q and k with a temperature : √(1/t) = 0.1*ln(s)+1 -> **2 because i use it as flash attention scale
-
         theta_i = torch.tensor([10000**(-2*i/head_size) for i in range(head_size//2)])
         self.register_buffer("theta_i", theta_i)
+        self.dropout_p = dropout
+        self.n_heads = n_heads
         self.register_buffer("wave_len", (2 * math.pi) / theta_i)
         self.register_buffer("r", context_len / self.wave_len)
+        self.alpha = 1 # tuneable parameter -> number minimum of rotation
+        self.beta = 32 # tuneable parameter -> threshold beyond which pure PI is ok
         gamma = torch.zeros_like(self.r)
         for i in range(len(gamma)):
             if (self.r[i] < self.alpha):
@@ -59,7 +54,7 @@ class GroupedQueryAttention(nn.Module):
             else:
                 gamma[i] = (self.r[i] - self.alpha) / (self.beta - self.alpha) # ntk-aware
         self.register_buffer("gamma", gamma)
-
+        self.register_buffer("s", torch.tensor(1.0)) # at start no additional scale
         
     
     def apply_rotation(self, matrix):
@@ -96,10 +91,7 @@ class GroupedQueryAttention(nn.Module):
         QS = [self.apply_rotation(self.qs[i](x)) for i in range(len(self.qs))]
 
         dropout = self.dropout_p if self.training else 0.0
-        out = torch.cat( [F.scaled_dot_product_attention(QS[i], KS[(i//self.group_size)], VS[(i//self.group_size)], 
-                                                         is_causal=True, dropout_p=dropout, 
-                                                         scale = self.scale_temp / math.sqrt(self.head_size)) for i in range(self.n_heads)], dim=-1 )
-                                                        # scale = (1 / √head_size) * temp_scale -> temp_scale ref to YaRN
+        out = torch.cat( [F.scaled_dot_product_attention(QS[i], KS[(i//self.group_size)], VS[(i//self.group_size)], is_causal=True, dropout_p=dropout) for i in range(self.n_heads)], dim=-1 )
         return self.end_dropout(self.proj(out))
 
 
@@ -188,7 +180,6 @@ class Transformer(nn.Module):
         return idx
     
     def change_context_len(self, new_l):
-        new_s = new_l / self.context_len
+        new_s = torch.tensor(new_l / self.context_len)
         for block in self.blocks:
             block.multihead.s.fill_(new_s)
-            block.multihead.scale_temp.fill_((0.1 * math.log(new_s) + 1)**2)

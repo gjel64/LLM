@@ -22,3 +22,4 @@
 | --- | --- | --- | --- |
 | Baseline | 3.59 - 3.24 | 6:57:09 | |
 | Muon | 3.51 - 3.12 | 7:05:16 | alternative to AdamW on some 2d matrix |
+| Yarn | | | context_len extention method that use ntk-by-parts interpolation and temperature on attention | 

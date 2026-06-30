@@ -48,7 +48,7 @@ def download_data(tokenizer, max_tokens, val_ratio=0.005):
 
 _memmaps = {}
 
-def get_batch(split, block_size, device, batch_size):
+def get_batch(split, context_len, device, batch_size):
     path = '.cache/train.bin' if split == 'train' else '.cache/val.bin'
     
     # Ouvre une seule fois
@@ -56,9 +56,9 @@ def get_batch(split, block_size, device, batch_size):
         _memmaps[path] = np.memmap(path, dtype=np.uint32, mode='r')
     data = _memmaps[path]
     
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
-    y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
+    ix = torch.randint(len(data) - context_len, (batch_size,))
+    x = torch.stack([torch.from_numpy((data[i:i+context_len]).astype(np.int64)) for i in ix])
+    y = torch.stack([torch.from_numpy((data[i+1:i+1+context_len]).astype(np.int64)) for i in ix])
     
     x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
     return x, y
