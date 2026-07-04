@@ -29,77 +29,69 @@ class GroupedQueryAttention(nn.Module):
         assert n_heads % n_groups == 0
         self.group_size = n_heads // n_groups # the number of heads per group
         self.n_groups = n_groups
-
-        self.ks = nn.ModuleList([nn.Linear(emb_dim, head_size, bias=False) for _ in range(n_groups)])
-        self.vs = nn.ModuleList([nn.Linear(emb_dim, head_size, bias=False) for _ in range(n_groups)])
-        self.qs = nn.ModuleList([nn.Linear(emb_dim, head_size, bias=False) for _ in range(n_heads)])
+        self.n_heads = n_heads
+        self.head_size = head_size # for scale in flash_attention
+        self.k_proj = nn.Linear(emb_dim, n_groups * head_size, bias=False) # abreviation to GQA L(C, hs) * G = L(C, hs*G)
+        self.v_proj = nn.Linear(emb_dim, n_groups * head_size, bias=False)
+        self.q_proj = nn.Linear(emb_dim, n_heads * head_size, bias=False) # abreviation to GQA L(C, hs) * H = L(C, hs*H)
 
         self.proj = nn.Linear(n_heads * head_size, emb_dim)
         self.end_dropout = nn.Dropout(dropout)
-
         self.dropout_p = dropout
-        self.n_heads = n_heads
-        self.head_size = head_size # for scale in flash_attention
+
         self.alpha = 1 # tuneable parameter -> number minimum of rotation
         self.beta = 32 # tuneable parameter -> threshold beyond which pure PI is ok
+        self.s = 1.0 # at start no additional scale
+        self.scale_temp = (0.1 * math.log(self.s) + 1)**2 # as in YaRN paper to scale indirectly q and k with a temperature : √(1/t) = 0.1*ln(s)+1 -> **2 because i use it as flash attention scale
 
-        self.register_buffer("s", torch.tensor(1.0)) # at start no additional scale
-        self.register_buffer("scale_temp", (0.1 * torch.log(self.s) + 1)**2) # as in YaRN paper to scale indirectly q and k with a temperature : √(1/t) = 0.1*ln(s)+1 -> **2 because i use it as flash attention scale
 
         theta_i = torch.tensor([10000**(-2*i/head_size) for i in range(head_size//2)])
         self.register_buffer("theta_i", theta_i)
-        self.register_buffer("wave_len", (2 * math.pi) / theta_i)
-        self.register_buffer("r", context_len / self.wave_len)
-        gamma = torch.zeros_like(self.r)
-        for i in range(len(gamma)):
-            if (self.r[i] < self.alpha):
-                gamma[i] = 0 # nothing
-            elif (self.r[i] > self.beta):
-                gamma[i] = 1 # PI
-            else:
-                gamma[i] = (self.r[i] - self.alpha) / (self.beta - self.alpha) # ntk-aware
+        wave_len = (2 * math.pi) / theta_i
+        r = context_len / wave_len
+        gamma = torch.clamp((r - self.alpha) / (self.beta - self.alpha), 0, 1) # ntk-aware
+        gamma = torch.where(r < self.alpha, torch.zeros_like(gamma), gamma) # PI
+        gamma = torch.where(r > self.beta, torch.ones_like(gamma), gamma) # nothing
         self.register_buffer("gamma", gamma)
 
-        
-    
-    def apply_rotation(self, matrix):
-        # s = L / L'
-        B, T, head_size = matrix.shape
-        
+    def apply_rotation(self, x):
+        B, n, T, hs = x.shape
+
         theta_interpolated = ((1 - self.gamma) * self.theta_i / self.s) + (self.gamma * self.theta_i)
+        m = torch.arange(T, device=x.device, dtype=self.theta_i.dtype)
+        h = torch.outer(m, theta_interpolated) # (T, head_size/2)
+        
+        cos = torch.cos(h).view(1, 1, T, hs // 2) # (1, 1, T, head_size/2)
+        sin = torch.sin(h).view(1, 1, T, hs // 2) # (1, 1, T, head_size/2)
 
-        m = torch.arange(T, device=matrix.device, dtype=self.theta_i.dtype) # positions
-
-        h = torch.outer(m, theta_interpolated)
-
-        cos = torch.cos(h)  # (T, head_size//2)
-        sin = torch.sin(h)  # (T, head_size//2)
-
-        cos = cos.unsqueeze(0) # (1, T, head_size//2)
-        sin = sin.unsqueeze(0) # (1, T, head_size//2)
-
-        x1 = matrix[:, :, 0::2]  # (B, T, head_size//2)
-        x2 = matrix[:, :, 1::2]  # (B, T, head_size//2)
-
-        new_x1 = x1 * cos - x2 * sin
-        new_x2 = x1 * sin + x2 * cos
-        out = torch.empty_like(matrix)
-        out[:, :, 0::2] = new_x1
-        out[:, :, 1::2] = new_x2
-
+        x1 = x[..., 0::2]
+        x2 = x[..., 1::2]
+        out = torch.empty_like(x)
+        out[..., 0::2] = x1 * cos - x2 * sin
+        out[..., 1::2] = x1 * sin + x2 * cos
         return out
     
     def forward(self, x):
-        KS = [self.apply_rotation(self.ks[i](x)) for i in range(self.n_groups)]
-        VS = [self.vs[i](x) for i in range(self.n_groups)]
+        B, T, _ = x.shape
 
-        QS = [self.apply_rotation(self.qs[i](x)) for i in range(len(self.qs))]
+        # better than lot of Ks, Vs, Qs -> big matmul -> parallelism
+        K = self.k_proj(x).view(B, T, self.n_groups, self.head_size).transpose(1, 2) # (B, n_groups, T, head_size)
+        V = self.v_proj(x).view(B, T, self.n_groups, self.head_size).transpose(1, 2) # (B, n_groups, T, head_size)
+        Q = self.q_proj(x).view(B, T, self.n_heads, self.head_size).transpose(1, 2)  # (B, n_heads, T, head_size)
+
+        K = self.apply_rotation(K) # (B, n_groups, T, head_size)
+        Q = self.apply_rotation(Q) # (B, n_heads, T, head_size)
 
         dropout = self.dropout_p if self.training else 0.0
-        out = torch.cat( [F.scaled_dot_product_attention(QS[i], KS[(i//self.group_size)], VS[(i//self.group_size)], 
-                                                         is_causal=True, dropout_p=dropout, 
-                                                         scale = self.scale_temp / math.sqrt(self.head_size)) for i in range(self.n_heads)], dim=-1 )
-                                                        # scale = (1 / √head_size) * temp_scale -> temp_scale ref to YaRN
+        out = F.scaled_dot_product_attention(
+            Q, K, V,
+            is_causal=True,
+            dropout_p=dropout,
+            enable_gqa=True, # broadcast G -> H
+            scale=self.scale_temp / math.sqrt(self.head_size),
+        )  # (B, H, T, hs)
+
+        out = out.transpose(1, 2).contiguous().view(B, T, self.n_heads * self.head_size)
         return self.end_dropout(self.proj(out))
 
 
@@ -111,7 +103,7 @@ class DecoderBlock(nn.Module):
         head_size = emb_dim // n_heads # dk = dv = dmodel / h
 
         self.multihead = GroupedQueryAttention(n_heads, emb_dim, head_size, context_len, dropout, n_groups)
-        self.FFN = FFN(emb_dim, emb_dim*4, emb_dim, dropout)
+        self.FFN = FFN(emb_dim, int(emb_dim*(8/3)), emb_dim, dropout) # 8/3 instead of *4 due to swiglu
         self.ln1 = torch.nn.RMSNorm(emb_dim)
         self.ln2 = torch.nn.RMSNorm(emb_dim)
     
@@ -134,7 +126,7 @@ class Transformer(nn.Module):
         self.l1 = nn.Linear(emb_dim, vocab_size, bias=False)
         
         self.device = device
-        self.context_len = context_len
+        self.initial_context_len = context_len
 
         self.emb.weight = self.l1.weight # emb and l1 are doing the same thing
         self.apply(self._init_weights)
@@ -188,7 +180,7 @@ class Transformer(nn.Module):
         return idx
     
     def change_context_len(self, new_l):
-        new_s = new_l / self.context_len
+        new_s = new_l / self.initial_context_len
         for block in self.blocks:
-            block.multihead.s.fill_(new_s)
-            block.multihead.scale_temp.fill_((0.1 * math.log(new_s) + 1)**2)
+            block.multihead.s = new_s
+            block.multihead.scale_temp = (0.1 * math.log(new_s) + 1)**2

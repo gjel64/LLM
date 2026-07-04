@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import math
+from torch.nn import functional as F
 
 class GroupedQueryAttention(nn.Module):
     def __init__(self, n_heads, emb_dim, head_size, context_len, dropout, n_groups):

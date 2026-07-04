@@ -1,8 +1,4 @@
 # Roadmap IA → LLM Agentic CoT (AI generated)
-> **Objectif :** maîtriser la pipeline complète d'un LLM agentic avec Chain-of-Thought fort  
-> **Prérequis :** tu sais déjà coder GPT-2/3 (cours Karpathy)  
-> **Durée estimée :** 12–18 mois  
-> **État de l'art :** 2025 (DeepSeek, o1/o3, Llama 3, Qwen 2.5)
 
 ---
 
@@ -33,19 +29,6 @@ Phase 7 → Projet final complet     (~8 sem)
 | **SwiGLU / GLU variants** ✅| Shazeer | 2020 | FFN activation standard de presque tous les LLMs open-source |
 | **RMSNorm + Pre-Norm** ✅| Zhang & Sennrich | 2019 | Normalisation stabilisante, standard post-2022 |
 
-### Code & vidéos
-
-- **Tri Dao — Flash Attention talks** (Stanford / YouTube) : comprendre l'intuition IO-awareness
-
-### Exercice clé
-
-1. Transformer from scratch ✅
-2. BPE from scratch ✅
-3. `nn.LayerNorm` → `RMSNorm` ✅
-4. Learned positional embeddings → `RoPE` ✅
-5. MHA → `GQA` ✅
-6. MLP standard → `SwiGLU` ✅
-
 ---
 
 ## Phase 2 — Scaling, Pretraining & Data
@@ -55,14 +38,12 @@ Phase 7 → Projet final complet     (~8 sem)
 
 | Paper | Auteurs | Année | Message clé |
 |---|---|---|---|
-| **Muon scalable for LLM training** ✅| Liu et al. | 2023 | xx |
+| **Muon scalable for LLM training** ✅| Keller Jordan et al. | 2023 | xx |
 | **YARN** ✅| Peng et al. | 2024 | xx |
 | **Training stability** | Yang et al. | 2022 | μ-parameterization, grad clipping, LR warmup — éviter les loss spikes |
 | **Chinchilla / Hoffmann et al.** | Hoffmann et al. | 2022 | Compute-optimal : ratio tokens/params, loi fondamentale |
-| **Kaplan Scaling Laws** | Kaplan et al. | 2020 | Fondations historiques — comprendre l'évolution du domaine |
-| **MoE — Sparse routing** | Lepikhin et al. + DeepSeek | 2021/24 | Scale sans coût compute linéaire |
-| **Llama 3 tech report** | Meta | 2024 | Pipeline complet open-source : data, tokenizer, architecture |
-| **DeepSeek V3** | DeepSeek | 2024 | MoE + multi-token prediction + FP8 training. **SOTA open-source 2025.** |
+| **DeepSeekMoE** | Lepikhin et al. + DeepSeek | 2024 | Scale sans coût compute linéaire |
+| **MLA** | DeepSeek-V2 | 2024 | a complétement remplacé GQA |
 
 ### Data pipeline
 
@@ -88,10 +69,8 @@ Phase 7 → Projet final complet     (~8 sem)
 |---|---|---|---|
 | **InstructGPT / RLHF** | Ouyang et al. | 2022 | Pipeline historique SFT → Reward Model → PPO. Fondation. |
 | **DPO** | Rafailov et al. | 2023 | Plus simple que PPO, **standard actuel** pour l'alignement |
-| **GRPO / SimPO** | DeepSeek / Chen et al. | 2024 | Variantes DPO plus stables, utilisées dans DeepSeek-R1 |
+| **GRPO / SimPO** | DeepSeek / Chen et al. | 2024 | Variantes PPO plus stables, utilisées dans DeepSeek-R1 |
 | **LoRA / QLoRA** | Hu et al. | 2021/23 | Fine-tuning paramètre-efficient, standard pour adapter un LLM |
-| **VeRA**|
-| **DoRA**|
 | **Constitutional AI / RLAIF** | Anthropic | 2022 | Self-critique, alignment sans labelers humains exhaustifs |
 
 ### Outils pratiques
@@ -116,7 +95,6 @@ InstructGPT → DPO → GRPO → implémenter un pipeline SFT+DPO avec TRL
 |---|---|---|---|
 | **Chain-of-Thought Prompting** | Wei et al. | 2022 | Découverte du reasoning émergent avec few-shot CoT. Fondation. |
 | **Self-Consistency CoT** | Wang et al. | 2023 | Majority vote sur plusieurs raisonnements — amélioration simple et puissante |
-| **Tree of Thoughts (ToT)** | Yao et al. | 2023 | Exploration arborescente des raisonnements |
 | **DeepSeek-R1** | DeepSeek | 2025 | **RL pur pour faire émerger le reasoning sans SFT supervisé. Révolution.** |
 | **OpenAI o1 / o3** | OpenAI | 2024/25 | Process reward models, search at test-time, long thinking traces |
 | **Process Reward Models (PRM)** | Lightman et al. | 2023 | Récompenser chaque étape de raisonnement, pas juste le résultat final |
@@ -157,7 +135,7 @@ InstructGPT → DPO → GRPO → implémenter un pipeline SFT+DPO avec TRL
 | Paper | Auteurs | Année | Importance |
 |---|---|---|---|
 | **ReAct** | Yao et al. | 2023 | Thought → Action → Observation loop. **Base de tous les agents.** |
-| **Toolformer** | Schick et al. | 2023 | Self-supervised tool use, API calls dans le contexte |
+| **Toolformer** | Schick et al. | 2023 | Self-supervised tool use, API calls dans le contexte (culture uniquement) |
 | **SWE-Agent / SWE-bench** | Yang et al. | 2024 | Coding agent SOTA sur vrais GitHub issues |
 | **AutoGen / AgentScope** | Microsoft / Alibaba | 2023/24 | Multi-agent frameworks — agents spécialisés qui se délèguent des tâches |
 
@@ -167,7 +145,6 @@ InstructGPT → DPO → GRPO → implémenter un pipeline SFT+DPO avec TRL
 |---|---|
 | **YaRN / LongRoPE** | Étendre la fenêtre de contexte sans réentraîner from scratch |
 | **RAG avancé** | Dense retrieval + reranking + chunk strategy — mémoire externe de l'agent |
-| **Ring Attention** | Attention distribuée sur plusieurs GPUs pour contextes > 1M tokens |
 
 ### Les 3 types de mémoire d'un agent
 
