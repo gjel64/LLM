@@ -30,7 +30,7 @@ class Config:
     emb_dim: int = 512 #d_model
     n_heads: int = 4
     n_group: int = 2
-    n_iter: int = 20_000
+    n_iter: int = 20_000 # found by hand to do 1 epoch
     context_lens = [2_048, 8_192, 32_768] # block_size
     n_iter_per_context_len = [n_iter * 0.8, n_iter * 0.15, n_iter * 0.05]
     n_block: int = 4 # n_layers
@@ -162,7 +162,7 @@ with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.CUDNN_ATTENTION, SDPBac
             # log
             print(f"iter : {i} | eval_loss : {eval_loss} | train_loss : {train_loss} | lr : {get_lr(i - sum(Config.n_iter_per_context_len[:actual_phase]), actual_phase_len)}")
             # save model
-            torch.save(model, "model.pt")
+            torch.save(model.state_dict(), "model.pt") # save it the good way
 
         # update context_len
         if (i >= sum(Config.n_iter_per_context_len[:actual_phase+1]) ) : # divide the training according to n_iter_per_context_len
