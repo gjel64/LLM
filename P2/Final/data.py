@@ -43,7 +43,7 @@ def download_data(tokenizer, max_tokens, val_ratio=0.005):
         train_f.close()
         val_f.close()
 
-        print(f"Total tokens : {total:,}")
+        print(f"Total tokens downloaded : {total:,}")
 
 
 _memmaps = {}

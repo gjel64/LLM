@@ -4,3 +4,4 @@ __pycache__/
 .bin
 .cache/
 .DS_Store
+*.pt

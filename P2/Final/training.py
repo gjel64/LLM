@@ -27,22 +27,22 @@ inductor_config.auto_chunker.enable = True
 
 @dataclass
 class Config:
-    emb_dim: int = 768 #d_model
-    n_heads: int = 8
+    emb_dim: int = 512 #d_model
+    n_heads: int = 4
     n_group: int = 2
-    n_iter: int = 10_000
+    n_iter: int = 20_000
     context_lens = [2_048, 8_192, 32_768] # block_size
     n_iter_per_context_len = [n_iter * 0.8, n_iter * 0.15, n_iter * 0.05]
-    n_block: int = 6 # n_layers
+    n_block: int = 4 # n_layers
     dropout: float = 0.0
     lr: float = 1e-3
     vocab_size: int = tokenizer.encode("<|endoftext|>", allowed_special="all")[0] + 1 # get the real size (was pb)
     batch_size: int = 32
-    n_iter_eval: int = 50
-    eval_interval: int = 250
+    n_iter_eval: int = 100
+    eval_interval: int = 500
     warmup_coef: int = 0.02
     final_lr_frac: float = 0.1
-    max_tokens: int = 100_000_000
+    max_tokens: int = 0 # will be define with the size of the model as said in Chinchilla
     device = device
 
 context_len = Config.context_lens[0]
@@ -52,7 +52,11 @@ model = Transformer(Config.vocab_size, Config.emb_dim,
                     Config.n_block, Config.dropout, device, Config.n_group)
 model = model.to(device)
 
+n_params = model.get_num_params()
+Config.max_tokens = n_params * 20 # fall into Chinchilla-trap but as i will not do inference this is ok
+
 download_data(tokenizer, max_tokens=Config.max_tokens)
+print("training on: %.2fT tokens" % (Config.max_tokens/1e9,))
 
 # optimizers :
 
