@@ -30,7 +30,7 @@ model.eval()
 
 while (True):
     prompt = input("> ")
-    p_en = tokenizer.encode(prompt)
+    p_en = tokenizer.encode(prompt, allowed_special="all")
     text = torch.tensor([p_en, p_en], device=device) # because batch size = 2
     res = model.generate(text, 50, Config.context_len)
     r_l = res.cpu().detach().numpy()
