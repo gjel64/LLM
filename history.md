@@ -24,3 +24,4 @@
 | Muon | 3.51 - 3.12 | 7:05:16 | alternative to AdamW on some 2d matrix |
 | Yarn + Cosine Decay | 3.45 - 2.94 | | context_len extention method that use ntk-by-parts interpolation and temperature on attention | 
 | Chinchilla | 3.29 - 3.29 | 6:30:49 | 1:20 is the minimum ration (param/training_token) for optimal training (i reduced the model size 110M -> 60M) |
+| Mixtral + DeepSeekMoE + MegaBlock | 3.15 - 3.12 | 7:50:31 | classic MoE + Fine-Grained Expert Segmentation and better loss (shared expert not good -> OLMoE) + MoE on a big matrix for efficiency |

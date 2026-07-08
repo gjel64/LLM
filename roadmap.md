@@ -40,9 +40,8 @@ Phase 7 → Projet final complet     (~8 sem)
 |---|---|---|---|
 | **Muon scalable for LLM training** ✅| Keller Jordan et al. | 2023 | xx |
 | **YARN** ✅| Peng et al. | 2024 | xx |
-| **Training stability** | Yang et al. | 2022 | μ-parameterization, grad clipping, LR warmup — éviter les loss spikes |
 | **Chinchilla / Hoffmann et al.** ✅| Hoffmann et al. | 2022 | Compute-optimal : ratio tokens/params, loi fondamentale |
-| **DeepSeekMoE** | Lepikhin et al. + DeepSeek | 2024 | Scale sans coût compute linéaire |
+| **DeepSeekMoE** and **Mixtral** and **MegaBlock**| Lepikhin et al. + DeepSeek and Mistral and Gale | 2024 *2 + 2022 | MoE |
 | **MLA** | DeepSeek-V2 | 2024 | a complétement remplacé GQA |
 
 ### Data pipeline

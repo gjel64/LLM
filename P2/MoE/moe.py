@@ -3,73 +3,90 @@ import torch.nn as nn
 from torch.nn import functional as F
 import math
 
-
-class FFN(nn.Module):
-    def __init__(self, in_f, n_hidden, out_f, dropout):
-        super().__init__()
-        
-        self.w1 = nn.Linear(in_f, n_hidden)
-        self.w2 =  nn.Linear(n_hidden, out_f)
-        self.v = nn.Linear(in_f, n_hidden)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        # ((Swish_1(x @ W1)) * (x @ V)) @ W2 -> SwigLU
-        x_w1 = self.w1(x)
-        Swish_1 = x_w1 * torch.sigmoid(x_w1)
-        x_v = self.v(x)
-        out = self.w2(Swish_1 * x_v)
-        return self.dropout(out)
-    
-
-
 class MoE(nn.Module):
+ 
     def __init__(self, N, K, emb_dim, dropout, m):
         """
-        N: number of experts
-        K: number of experts choosen
+        N: nombre d'experts (de base)
+        K: nombre d'experts choisis (de base)
+        m: granularite (fine-grained experts) -> N_eff = m*N, K_eff = m*K,
+           hidden par expert divise par m
         """
         super().__init__()
         self.m = m
         self.N = m * N
         self.K = m * K
-        hidden = int(emb_dim * (8/3)) # 8/3 instead of *4 due to swiglu
-        self.experts = nn.ModuleList(
-            [FFN(emb_dim, hidden // m, emb_dim, dropout) for _ in range(self.N)]
-        )
+        self.emb_dim = emb_dim
+        hidden = int(emb_dim * (8 / 3))       # 8/3 au lieu de *4 a cause de SwiGLU
+        self.hidden = hidden // m             # hidden par expert
+ 
         self.gate = nn.Linear(emb_dim, self.N, bias=False)
+ 
+        self.w1 = torch.empty(self.N, emb_dim, self.hidden)
+        self.v = torch.empty(self.N, emb_dim, self.hidden)
+        self.w2 = torch.empty(self.N, self.hidden, emb_dim)
+        self.b1 = torch.zeros(self.N, self.hidden)
+        self.bv = torch.zeros(self.N, self.hidden)
+        self.b2 = torch.zeros(self.N, emb_dim)
+ 
+        self.dropout = nn.Dropout(dropout)
         self.last_aux_loss = None
-    
+        self._reset_expert_params()
+ 
+    def _reset_expert_params(self):
+        # same init as all the model
+        for p in (self.w1, self.v, self.w2):
+            nn.init.normal_(p, mean=0.0, std=0.02)
+        for b in (self.b1, self.bv, self.b2):
+            nn.init.zeros_(b)
+ 
+    def _grouped_swiglu(self, x_sorted, offs):
+        h = torch._grouped_mm(x_sorted, self.w1, offs=offs) # (M, hidden)
+        swish = h * torch.sigmoid(h)
+        gate = torch._grouped_mm(x_sorted, self.v,  offs=offs) # (M, hidden)
+        out = torch._grouped_mm(swish * gate, self.w2, offs=offs) # (M, C)
+        return out
+ 
     def forward(self, x):
         B, T, C = x.shape
-        flat_x = x.view(B*T, C)
-
-        # affinity calcul
-        logits = self.gate(flat_x) # (B*T, N)
-        aff = F.softmax(logits, dim=-1) # softmax on experts (B*T, N)
-
-        # select good values and norom
-        aff_v, aff_i = aff.topk(self.K) # (B*T, K)
-        aff_v = aff_v / aff_v.sum(-1, keepdim=True)
-
+        x = x.reshape(B * T, C)
+        S = x.shape[0] # = B*T
+ 
+        logits = self.gate(x) # (S, N)
+        aff = F.softmax(logits, dim=-1) # softmax on experts
+        aff_v, aff_i = aff.topk(self.K, dim=-1)  # (S, K)
+        aff_v = aff_v / aff_v.sum(-1, keepdim=True) # norm top-K
+ 
         with torch.no_grad():
-            # f_i
-            one_hot = F.one_hot(aff_i, num_classes=self.N).float() # (B*T, K, N)
-            f = one_hot.sum(dim=(0, 1)) / (aff_i.numel()) # (N) sum(B*T*K) normalized
+            one_hot = F.one_hot(aff_i, num_classes=self.N).float() # (S, K, N)
+            f = one_hot.sum(dim=(0, 1)) / aff_i.numel() # (N)
         P = aff.mean(dim=0) # (N)
         self.last_aux_loss = self.N * (f * P).sum()
-
-        flat_out = torch.zeros_like(flat_x) # (B*T, C)
-        for e in range(self.N):
-            mask = (aff_i == e) # (B*T, K)
-            if not mask.any():
-                continue
-            token_mask = mask.any(dim=-1) # for each token check if need to use this expert
-            g = (aff_v * mask).sum(-1) # (B*T)
-            flat_out[token_mask] += g[token_mask].unsqueeze(-1) * self.experts[e](flat_x[token_mask]) # (n_e​, 1) × (n_e​, C) = (ne​, C)
-
-        return flat_out.view(B, T, C)
-
+ 
+        expert_idx = aff_i.reshape(-1) # (S*K)
+        gates = aff_v.reshape(-1) # (S*K)
+        token_idx = torch.arange(S, device=x.device).repeat_interleave(self.K) # (S*K)
+ 
+        sort_order = torch.argsort(expert_idx) # sort per expert
+        expert_idx_s = expert_idx[sort_order]
+        token_idx_s = token_idx[sort_order]
+        gates_s = gates[sort_order]
+ 
+        x_sorted = x[token_idx_s] # (S*K, C)
+ 
+        # nb tokens per expert
+        counts = torch.bincount(expert_idx_s, minlength=self.N).tolist()
+ 
+        # grouped GEMM (block-sparse emule)
+        out_sorted = self._grouped_swiglu(x_sorted, counts) # (S*K, C)
+        out_sorted = out_sorted * gates_s.unsqueeze(-1)
+ 
+        out = torch.zeros_like(x)
+        out.index_add_(0, token_idx_s, out_sorted) # somme des K contributions
+ 
+        out = self.dropout(out)
+        return out.view(B, T, C)
+ 
 
 
 class GroupedQueryAttention(nn.Module):
