@@ -10,6 +10,7 @@ from tqdm import tqdm
 import math
 import argparse
 import json
+import torch._dynamo
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--name", type=str, default="unknown")
@@ -28,40 +29,42 @@ inductor_config.auto_chunker.enable = True
 @dataclass
 class Config:
     emb_dim: int = 512 #d_model
-    n_heads: int = 4
-    n_group: int = 2
-    n_iter: int = 16000 # found by hand to do 1 epoch
+    n_heads: int = 8
+    n_iter: int = 12000 # found by hand to do 1 epoch
     context_lens = [2_048, 8_192, 32_768] # block_size
-    n_iter_per_context_len = [int(n_iter * 0.8), int(n_iter * 0.15), int(n_iter * 0.05) ]
+    n_iter_per_context_len = [int(n_iter * 0.75), int(n_iter * 0.15), int(n_iter * 0.10) ]
     n_block: int = 4 # n_layers (reduce on MoE)
     dropout: float = 0.0
     lr: float = 1e-3
     vocab_size: int = tokenizer.encode("<|startoftext|>", allowed_special="all")[0] + 1 # get the real size (was pb)
-    batch_size: int = 32
-    n_iter_eval: int = int(80)
-    eval_interval: int = int(400)
+    batch_size: int = 48
+    n_iter_eval: int = 60
+    eval_interval: int = 300
     warmup_coef: int = 0.02
     final_lr_frac: float = 0.1
-    max_tokens: int = 0 # will be define with the size of the model as said in Chinchilla
+    max_tokens: int = 0 # will be define with the size of the model as said in Chinchilla vvv
     device = device
     n_experts : int = 4
     top_k : int = 1
     m : int = 3
     alpha: float = 0.01
+    d_latent = 96 # 96 + 32 = 128 for the flex attn but to grow -> 256
+    d_rope = 32
 
 context_len = Config.context_lens[0]
 
 model = Transformer(Config.vocab_size, Config.emb_dim, 
                     Config.n_heads, context_len, 
-                    Config.n_block, Config.dropout, device, Config.n_group, 
-                    Config.n_experts, Config.top_k, Config.alpha, Config.m)
+                    Config.n_block, Config.dropout, device, 
+                    Config.n_experts, Config.top_k, Config.alpha, Config.m, 
+                    Config.d_latent, Config.d_rope)
 model = model.to(device)
 
 n_params = model.get_num_params()
 Config.max_tokens = n_params * 20 # fall into Chinchilla-trap but as i don't aim to do inference this is ok
 
 download_data(tokenizer, max_tokens=Config.max_tokens)
-print("training on: %.2fT tokens" % (Config.max_tokens/1e9))
+print("training on: %.2fB tokens" % (Config.max_tokens/1e9))
 
 # optimizers :
 
@@ -125,6 +128,7 @@ def get_lr(relative_it, actual_phase_len):
 
 
 if device == "cuda":
+    torch._dynamo.config.recompile_limit = 64 # for the compile not to give up
     model = torch.compile(model, dynamic=True)
 
 print("training stats: ")
@@ -139,7 +143,7 @@ eval_loss_stats = []
 
 
 # training loop
-with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.CUDNN_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]):
+with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.CUDNN_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]): # for flash attention
     for i in tqdm(range(Config.n_iter)):
         model.train()
         

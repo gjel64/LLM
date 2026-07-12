@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import math
+from torch.nn.attention.flex_attention import flex_attention, create_block_mask
 
+flex_attention = torch.compile(flex_attention) # to make sure taht this is compiled
 
 class FFN(nn.Module):
     def __init__(self, in_f, n_hidden, out_f, dropout):
@@ -72,29 +74,32 @@ class MoE(nn.Module):
 
 
 
-class GroupedQueryAttention(nn.Module):
-    def __init__(self, n_heads, emb_dim, head_size, context_len, dropout, n_groups):
+class MultiHeadLatentAttention(nn.Module):
+    """
+    matrix m are decomposed into m_d and m_u
+    """
+    def __init__(self, n_heads, emb_dim, d_latent, d_rope, context_len, dropout, device):
         super().__init__()
-        assert n_heads % n_groups == 0
-        self.group_size = n_heads // n_groups # the number of heads per group
-        self.n_groups = n_groups
+
         self.n_heads = n_heads
-        self.head_size = head_size # for scale in flash_attention
-        self.k_proj = nn.Linear(emb_dim, n_groups * head_size, bias=False) # abreviation to GQA L(C, hs) * G = L(C, hs*G)
-        self.v_proj = nn.Linear(emb_dim, n_groups * head_size, bias=False)
-        self.q_proj = nn.Linear(emb_dim, n_heads * head_size, bias=False) # abreviation to GQA L(C, hs) * H = L(C, hs*H)
+        self.r = d_latent
+        self.q_d = nn.Linear(emb_dim, self.r, bias=False)
+        self.kv_d = nn.Linear(emb_dim, self.r, bias=False)
 
-        self.proj = nn.Linear(n_heads * head_size, emb_dim)
-        self.end_dropout = nn.Dropout(dropout)
-        self.dropout_p = dropout
+        # Precomputed matrix multiplications of q_U and k_U, for multiple heads
+        self.qk_u = nn.Linear(self.r, n_heads * self.r, bias=False)
+        self.v_u = nn.Linear(self.r, emb_dim, bias=False)
 
+        self.o = nn.Linear(emb_dim, emb_dim)
+        self.dropout = nn.Dropout(dropout)
+
+        # ROPE :
         self.alpha = 1 # tuneable parameter -> number minimum of rotation
         self.beta = 32 # tuneable parameter -> threshold beyond which pure PI is ok
         self.s = 1.0 # at start no additional scale
         self.scale_temp = (0.1 * math.log(self.s) + 1)**2 # as in YaRN paper to scale indirectly q and k with a temperature : √(1/t) = 0.1*ln(s)+1 -> **2 because i use it as flash attention scale
 
-
-        theta_i = torch.tensor([10000**(-2*i/head_size) for i in range(head_size//2)])
+        theta_i = torch.tensor([10000**(-2*i/d_rope) for i in range(d_rope//2)])
         self.register_buffer("theta_i", theta_i)
         wave_len = (2 * math.pi) / theta_i
         r = context_len / wave_len
@@ -103,15 +108,23 @@ class GroupedQueryAttention(nn.Module):
         gamma = torch.where(r > self.beta, torch.ones_like(gamma), gamma) # nothing
         self.register_buffer("gamma", gamma)
 
+        self.d_rope = d_rope
+        self.q_r = nn.Linear(self.r, n_heads * self.d_rope, bias=False)
+        self.k_r = nn.Linear(emb_dim, self.d_rope, bias=False)
+
+        def causal(b, h, q_idx, kv_idx): return q_idx >= kv_idx
+        self.block_mask = create_block_mask(causal, B=None, H=None, Q_LEN=context_len, KV_LEN=context_len, device=device)
+
+
     def apply_rotation(self, x):
         B, n, T, hs = x.shape
 
         theta_interpolated = ((1 - self.gamma) * self.theta_i / self.s) + (self.gamma * self.theta_i)
         m = torch.arange(T, device=x.device, dtype=self.theta_i.dtype)
-        h = torch.outer(m, theta_interpolated) # (T, head_size/2)
+        h = torch.outer(m, theta_interpolated) # (T, d_rope/2)
         
-        cos = torch.cos(h).view(1, 1, T, hs // 2) # (1, 1, T, head_size/2)
-        sin = torch.sin(h).view(1, 1, T, hs // 2) # (1, 1, T, head_size/2)
+        cos = torch.cos(h).view(1, 1, T, hs // 2) # (1, 1, T, d_rope/2)
+        sin = torch.sin(h).view(1, 1, T, hs // 2) # (1, 1, T, d_rope/2)
 
         x1 = x[..., 0::2]
         x2 = x[..., 1::2]
@@ -121,37 +134,51 @@ class GroupedQueryAttention(nn.Module):
         return out
     
     def forward(self, x):
-        B, T, _ = x.shape
+        """
+        = softmax((C_q @ Wu_q @ Wu_k^T @ C_kv^T) / sqrt(d_k) ) @ C_kv @ Wu_c   -> refer to picture
+        """
+        B, T, C = x.shape
 
-        # better than lot of Ks, Vs, Qs -> big matmul -> parallelism
-        K = self.k_proj(x).view(B, T, self.n_groups, self.head_size).transpose(1, 2) # (B, n_groups, T, head_size)
-        V = self.v_proj(x).view(B, T, self.n_groups, self.head_size).transpose(1, 2) # (B, n_groups, T, head_size)
-        Q = self.q_proj(x).view(B, T, self.n_heads, self.head_size).transpose(1, 2)  # (B, n_heads, T, head_size)
+        # Projections of input into latent spaces
+        c_q = self.q_d(x) # (B, T, r)
+        c_kv = self.kv_d(x) # (B, T, r)
 
-        K = self.apply_rotation(K) # (B, n_groups, T, head_size)
-        Q = self.apply_rotation(Q) # (B, n_heads, T, head_size)
+        c_q_qk = self.qk_u(c_q).view(B, T, self.n_heads, self.r).transpose(1, 2) # (B, T, H*r) -> (B, T, H, r) -> (B, H, T, r)
 
-        dropout = self.dropout_p if self.training else 0.0
-        out = F.scaled_dot_product_attention(
+        # ROPE
+        q_r = self.q_r(c_q).view(B, T, self.n_heads, self.d_rope).transpose(1, 2) # (B, T, d_rope*H) -> (B, T, H, d_rope) -> (B, H, T, d_rope)
+        q_r = self.apply_rotation(q_r) # (B, H, T, d_rope)
+        k_r = self.apply_rotation(self.k_r(x).unsqueeze(1)) # (B, 1, T, d_rope) 
+        
+        # common
+        Q = torch.cat([c_q_qk, q_r], dim=-1) # (B, H, T, r+d_rope)
+        K = torch.cat([c_kv.unsqueeze(1), k_r], dim=-1) # (B, 1, T, r+d_rope)
+        V = c_kv.unsqueeze(1) # (B, 1, T, r)
+
+        ctx = flex_attention( # (B, H, T, r)
             Q, K, V,
-            is_causal=True,
-            dropout_p=dropout,
-            enable_gqa=True, # broadcast G -> H
-            scale=self.scale_temp / math.sqrt(self.head_size),
-        )  # (B, H, T, hs)
+            block_mask=self.block_mask,
+            scale=self.scale_temp / math.sqrt(self.r + self.d_rope),
+            enable_gqa=True, # flex attention enable GQA 
+        )
 
-        out = out.transpose(1, 2).contiguous().view(B, T, self.n_heads * self.head_size)
-        return self.end_dropout(self.proj(out))
+        hd = C // self.n_heads
+        Wv = self.v_u.weight.view(self.n_heads, hd, self.r) # (H, hd, r)
+        out = torch.einsum('bhtr,hdr->bhtd', ctx, Wv) # (B, H, T, hd)
+
+        out = out.transpose(1, 2).contiguous().view(B, T, -1)
+        out = self.o(out)
+
+        return self.dropout(out)
 
 
 
 class DecoderBlock(nn.Module):
-    def __init__(self, emb_dim, n_heads, context_len, dropout, n_groups, n_experts, K, m):
+    def __init__(self, emb_dim, n_heads, context_len, dropout, n_experts, K, m, d_latent, d_rope, device):
         super().__init__()
 
         head_size = emb_dim // n_heads # dk = dv = dmodel / h
-
-        self.multihead = GroupedQueryAttention(n_heads, emb_dim, head_size, context_len, dropout, n_groups)
+        self.multihead = MultiHeadLatentAttention(n_heads, emb_dim, d_latent, d_rope, context_len, dropout, device)
         self.moe = MoE(n_experts, K, emb_dim, dropout, m)
         self.ln1 = torch.nn.RMSNorm(emb_dim)
         self.ln2 = torch.nn.RMSNorm(emb_dim)
@@ -165,11 +192,12 @@ class DecoderBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, vocab_size, emb_dim, n_heads, context_len, n_block, dropout, device, n_groups, n_experts, K, alpha, m):
+    def __init__(self, vocab_size, emb_dim, n_heads, context_len, n_block, dropout, device, 
+                n_experts, K, alpha, m, d_latent, d_rope):
         super().__init__()
         self.emb = nn.Embedding(vocab_size, emb_dim)
         self.blocks = nn.ModuleList(
-            [DecoderBlock(emb_dim, n_heads, context_len, dropout, n_groups, n_experts, K, m) for _ in range(n_block)]
+            [DecoderBlock(emb_dim, n_heads, context_len, dropout, n_experts, K, m, d_latent, d_rope, device) for _ in range(n_block)]
         )
         self.ln = nn.RMSNorm(emb_dim)
         self.l1 = nn.Linear(emb_dim, vocab_size, bias=False)
@@ -242,3 +270,6 @@ class Transformer(nn.Module):
         for block in self.blocks:
             block.multihead.s = new_s
             block.multihead.scale_temp = (0.1 * math.log(new_s) + 1)**2
+
+            def causal(b, h, q_idx, kv_idx): return q_idx >= kv_idx
+            block.multihead.block_mask = create_block_mask(causal, B=None, H=None, Q_LEN=new_l, KV_LEN=new_l, device=self.device)
