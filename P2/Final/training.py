@@ -30,7 +30,7 @@ inductor_config.auto_chunker.enable = True
 class Config:
     emb_dim: int = 512 #d_model
     n_heads: int = 8
-    n_iter: int = 12000 # found by hand to do 1 epoch
+    n_iter: int = 16000 # found by hand to do 1 epoch
     context_lens = [2_048, 8_192, 32_768] # block_size
     n_iter_per_context_len = [int(n_iter * 0.75), int(n_iter * 0.15), int(n_iter * 0.10) ]
     n_block: int = 4 # n_layers (reduce on MoE)
@@ -38,8 +38,8 @@ class Config:
     lr: float = 1e-3
     vocab_size: int = tokenizer.encode("<|startoftext|>", allowed_special="all")[0] + 1 # get the real size (was pb)
     batch_size: int = 48
-    n_iter_eval: int = 60
-    eval_interval: int = 300
+    n_iter_eval: int = 80
+    eval_interval: int = 400
     warmup_coef: int = 0.02
     final_lr_frac: float = 0.1
     max_tokens: int = 0 # will be define with the size of the model as said in Chinchilla vvv
@@ -50,6 +50,7 @@ class Config:
     alpha: float = 0.01
     d_latent = 96 # 96 + 32 = 128 for the flex attn but to grow -> 256
     d_rope = 32
+    predicted_tokens = 2
 
 context_len = Config.context_lens[0]
 
@@ -57,7 +58,7 @@ model = Transformer(Config.vocab_size, Config.emb_dim,
                     Config.n_heads, context_len, 
                     Config.n_block, Config.dropout, device, 
                     Config.n_experts, Config.top_k, Config.alpha, Config.m, 
-                    Config.d_latent, Config.d_rope)
+                    Config.d_latent, Config.d_rope, Config.predicted_tokens)
 model = model.to(device)
 
 n_params = model.get_num_params()
@@ -102,15 +103,15 @@ def eval(nb_iter):
     eval_loss = 0
     for i in range(nb_iter):
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            X, Y = get_batch("eval", context_len, device, Config.batch_size)
-            logits, loss = model(X, Y)
+            X, Y = get_batch("eval", context_len, device, Config.batch_size, Config.predicted_tokens)
+            logits, loss = model(X, Y, False)
         eval_loss += loss / nb_iter
     
     train_loss = 0
     for i in range(nb_iter):
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            X, Y = get_batch("train", context_len, device, Config.batch_size)
-            logits, loss = model(X, Y)
+            X, Y = get_batch("train", context_len, device, Config.batch_size, Config.predicted_tokens)
+            logits, loss = model(X, Y, False)
         train_loss += loss / nb_iter
     
     return eval_loss.item(), train_loss.item() # .item() at the end no so snyc GPU and CPU during all the foor loop
@@ -183,11 +184,9 @@ with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.CUDNN_ATTENTION, SDPBac
 
         # training 
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16): # tu upgrade perf -> satisfy flash Attention
-            X, Y = get_batch("train", context_len, device, Config.batch_size)
-            logits, loss = model(X, Y)
+            X, Y = get_batch("train", context_len, device, Config.batch_size, Config.predicted_tokens)
+            logits, loss = model(X, Y, True) # backward into the forward since MTP
 
-        # update
-        loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         for optims in optimizers:
             optims.step()

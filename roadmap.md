@@ -43,6 +43,7 @@ Phase 7 → Projet final complet     (~8 sem)
 | **Chinchilla / Hoffmann et al.** ✅| Hoffmann et al. | 2022 | Compute-optimal : ratio tokens/params, loi fondamentale |
 | **DeepSeekMoE** and **Mixtral** ✅| Lepikhin et al. + DeepSeek and Mistral | 2024 *2 | MoE |
 | **MLA** ✅| DeepSeek-V2 | 2024 | a complétement remplacé GQA |
+| **MTP** ✅| Gloeckle et al. | 2024 | nouveau paradigme |
 
 
 ### Data pipeline

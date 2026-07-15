@@ -207,7 +207,6 @@ class Transformer(nn.Module):
         
         self.device = device
         self.alpha = alpha # coef for MoE loss
-        self.n_predicted_tokens = n_predicted_tokens
         self.initial_context_len = context_len
 
         self.emb.weight = self.l1.weight # emb and l1 are doing the same thing
@@ -246,21 +245,17 @@ class Transformer(nn.Module):
             d.requires_grad = True
 
 
-            for i, end_block in enumerate(self.leaf_blocks): 
+            for end_block in self.leaf_blocks: 
                 # for each token prediction : backward, not to materialize all the logits
-                h =  self.ln(end_block(d))
-                logits = self.l1(h) # (B, T, V)
-                target = y[:, i:i + T] # (B, T)
+                x = end_block(d)
+                x = self.ln(x)
+                logits = self.l1(x)
 
-                loss = F.cross_entropy(
-                    logits.reshape(-1, logits.size(-1)),
-                    target.reshape(-1),
-                    ignore_index=-1,
-                )
-                total_loss += loss.detach() / self.n_predicted_tokens
+                loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1), ignore_index=-1)
                 loss += self.alpha * end_block.moe.last_aux_loss
                 if training:
                     loss.backward()
+                total_loss += loss
       
 
             aux_loss = torch.stack(aux_losses).mean() # mean over all block's MoE
@@ -271,6 +266,7 @@ class Transformer(nn.Module):
                     [z, aux_loss],
                     grad_tensors=[d.grad, torch.ones_like(aux_loss)]
                 ) # backward through common part (both on same time)
+            total_loss += aux_loss
 
             logits = None # not needed during training
         else:

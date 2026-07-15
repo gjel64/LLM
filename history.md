@@ -25,4 +25,5 @@
 | Yarn + Cosine Decay | 3.45 - 2.94 | | context_len extention method that use ntk-by-parts interpolation and temperature on attention | 
 | Chinchilla | 3.29 - 3.29 | 6:30:49 | 1:20 is the minimum ration (param/training_token) for optimal training (i reduced the model size 110M -> 60M) |
 | Mixtral + DeepSeekMoE | 3.15 - 3.12 | 7:50:31 | classic MoE + Fine-Grained Expert Segmentation and better loss (shared expert not good -> OLMoE)|
-| MLA | 3.14 - 3.11 | 10:07 | cache latent low-rank c_KV instead of KV per head => never materialize them | 
+| MLA | 3.14 - 3.11 | 10:07:00 | cache latent low-rank c_KV instead of KV per head => never materialize them | 
+| MTP | 3.81 - 3.83 | 20:47:00 | predict n tokens instead of one -> common trunk and after for each token one head (backward pass is different) |
